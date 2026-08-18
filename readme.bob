@@ -1,0 +1,6 @@
+in terminal 1
+start: 'npm run dev'
+in terminal 2
+start: 'ngrok http 5173'
+
+Leave running and start a new bash terminal

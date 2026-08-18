@@ -1,0 +1,829 @@
+/* ----------------------------- */
+/* Base Layout                   */
+/* ----------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+.kanvas-app {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+  background: #f6f7fb;
+  color: #181b34;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.kanvas-body {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.kanvas-flow-wrapper {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ----------------------------- */
+/* Floating Vertical Toolbar     */
+/* ----------------------------- */
+
+.kanvas-toolbar {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  width: 190px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #dcdfec;
+  border-radius: 12px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+}
+
+.kanvas-logo {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+
+.kanvas-caption {
+  font-size: 11px;
+  color: #676879;
+  line-height: 1.3;
+  margin-top: 3px;
+  word-break: break-word;
+}
+
+.kanvas-toolbar-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.kanvas-toolbar-actions button {
+  width: 100%;
+  text-align: left;
+  min-height: 32px;
+  padding: 7px 9px;
+  border: 1px solid #c5c7d0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #181b34;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.kanvas-toolbar-actions button:hover:not(:disabled) {
+  background: #f0f3ff;
+  border-color: #0073ea;
+  color: #0073ea;
+}
+
+.kanvas-toolbar-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #f3f4f8;
+  color: #9699a6;
+  border-color: #d8dbe8;
+}
+
+.kanvas-search {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #c5c7d0;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #181b34;
+  background: #ffffff;
+}
+
+.kanvas-search:focus {
+  outline: none;
+  border-color: #0073ea;
+  box-shadow: 0 0 0 2px rgba(0, 115, 234, 0.15);
+}
+
+/* ----------------------------- */
+/* React Flow Base Styling       */
+/* ----------------------------- */
+
+.react-flow__node {
+  border-radius: 14px;
+}
+
+.react-flow__handle {
+  width: 9px;
+  height: 9px;
+  background: #0073ea;
+  border: 2px solid white;
+}
+
+.react-flow__edge.selected path {
+  filter: drop-shadow(0 0 4px rgba(0, 115, 234, 0.45));
+}
+
+/* ----------------------------- */
+/* Card Nodes                    */
+/* ----------------------------- */
+
+.kanvas-card {
+  width: 270px;
+  min-height: 116px;
+  display: flex;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #d8dbe8;
+  box-shadow: 0 8px 22px rgba(29, 38, 61, 0.12);
+}
+
+.kanvas-card.selected {
+  outline: 3px solid #0073ea;
+  outline-offset: 3px;
+}
+
+.kanvas-card-accent {
+  width: 8px;
+  flex: 0 0 8px;
+}
+
+.kanvas-card-content {
+  padding: 14px;
+  flex: 1;
+}
+
+.kanvas-card-title {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #181b34;
+  margin-bottom: 6px;
+}
+
+.kanvas-card-subtitle {
+  font-size: 12px;
+  color: #676879;
+  line-height: 1.35;
+  margin-bottom: 14px;
+}
+
+.kanvas-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kanvas-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: #0073ea;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.kanvas-owner {
+  font-size: 11px;
+  color: #676879;
+  white-space: nowrap;
+}
+
+/* ----------------------------- */
+/* Details Panel                 */
+/* ----------------------------- */
+
+.kanvas-details-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+
+  width: 340px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+
+  background: #ffffff;
+  border: 1px solid #dcdfec;
+  border-radius: 12px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+
+  padding: 18px;
+  z-index: 1000;
+}
+
+.kanvas-details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.kanvas-details-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #181b34;
+}
+
+.kanvas-details-subtitle {
+  font-size: 12px;
+  color: #676879;
+  margin-top: 3px;
+}
+
+.kanvas-icon-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #c5c7d0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #181b34;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.kanvas-icon-button:hover {
+  background: #f0f3ff;
+  border-color: #0073ea;
+}
+
+.kanvas-details-section {
+  margin-bottom: 16px;
+}
+
+.kanvas-details-section label {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #676879;
+  margin-bottom: 6px;
+}
+
+.kanvas-details-value {
+  font-size: 14px;
+  color: #181b34;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.kanvas-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.kanvas-details-actions {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kanvas-details-actions button {
+  height: 36px;
+  border: 1px solid #0073ea;
+  border-radius: 8px;
+  background: #0073ea;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.kanvas-details-actions button:hover:not(:disabled) {
+  background: #005bb5;
+}
+
+.kanvas-details-actions button:disabled {
+  border-color: #c5c7d0;
+  background: #eef0f5;
+  color: #9699a6;
+  cursor: not-allowed;
+}
+
+.kanvas-details-input,
+.kanvas-details-textarea {
+  width: 100%;
+  border: 1px solid #c5c7d0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 14px;
+  color: #181b34;
+  background: #ffffff;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.kanvas-details-input:focus,
+.kanvas-details-textarea:focus {
+  outline: none;
+  border-color: #0073ea;
+  box-shadow: 0 0 0 2px rgba(0, 115, 234, 0.15);
+}
+
+.kanvas-details-textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.kanvas-details-color {
+  width: 100%;
+  height: 38px;
+  border: 1px solid #c5c7d0;
+  border-radius: 8px;
+  padding: 4px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.kanvas-danger-button {
+  border-color: #e2445c !important;
+  background: #e2445c !important;
+  color: #ffffff !important;
+}
+
+.kanvas-danger-button:hover {
+  background: #c7354d !important;
+}
+
+.kanvas-details-section input[type="checkbox"] {
+  margin-right: 6px;
+}
+
+/* ----------------------------- */
+/* Frame Nodes                   */
+/* ----------------------------- */
+
+.kanvas-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 2px dashed #0073ea;
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(0, 115, 234, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.kanvas-frame.selected {
+  outline: 3px solid #0073ea;
+  outline-offset: 4px;
+}
+
+.kanvas-frame .react-flow__resize-control {
+  z-index: 20;
+}
+
+.kanvas-frame-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.kanvas-frame-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  margin-top: 4px;
+  flex: 0 0 auto;
+}
+
+.kanvas-frame-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #181b34;
+}
+
+.kanvas-frame-description {
+  font-size: 12px;
+  color: #676879;
+  margin-top: 3px;
+  max-width: 420px;
+}
+
+/* ----------------------------- */
+/* Shape Nodes                   */
+/* ----------------------------- */
+
+.kanvas-shape-wrapper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.kanvas-shape-wrapper .react-flow__resize-control {
+  z-index: 20;
+}
+
+.kanvas-shape {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #0073ea;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #181b34;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  padding: 8px;
+  transition:
+    outline 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.kanvas-shape.selected {
+  outline: 3px solid #0073ea;
+  outline-offset: 4px;
+  box-shadow: 0 8px 22px rgba(29, 38, 61, 0.16);
+}
+
+.kanvas-shape-circle {
+  border-radius: 999px;
+}
+
+.kanvas-shape-triangle-container,
+.kanvas-shape-hexagon-container,
+.kanvas-shape-arrow-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transition:
+    outline 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.kanvas-shape-triangle-container.selected,
+.kanvas-shape-hexagon-container.selected,
+.kanvas-shape-arrow-container.selected {
+  outline: 3px solid #0073ea;
+  outline-offset: 6px;
+  border-radius: 10px;
+}
+
+.kanvas-shape-triangle {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #0073ea;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}
+
+.kanvas-shape-triangle-label {
+  position: absolute;
+  left: 50%;
+  top: 60%;
+  transform: translate(-50%, -50%);
+  color: #181b34;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+  max-width: 80%;
+}
+
+.kanvas-shape-hexagon {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #0073ea;
+  clip-path: polygon(
+    25% 0%,
+    75% 0%,
+    100% 50%,
+    75% 100%,
+    25% 100%,
+    0% 50%
+  );
+}
+
+.kanvas-shape-hexagon-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #181b34;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+  max-width: 72%;
+}
+
+.kanvas-shape-arrow-container {
+  display: flex;
+  align-items: center;
+}
+
+.kanvas-shape-arrow-body {
+  height: 60%;
+  flex: 1;
+  min-width: 40px;
+  border: 2px solid #0073ea;
+  border-right: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #181b34;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  padding: 4px 8px;
+}
+
+.kanvas-shape-arrow-head {
+  width: 0;
+  height: 0;
+  border-top: 35px solid transparent;
+  border-bottom: 35px solid transparent;
+  border-left: 48px solid #dff0ff;
+}
+
+.kanvas-shape-text {
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.kanvas-shape-text-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #181b34;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.kanvas-shape-text-body {
+  font-size: 12px;
+  font-weight: 500;
+  color: #323338;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  max-width: 100%;
+  max-height: 80px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.kanvas-shape-triangle-label,
+.kanvas-shape-hexagon-label {
+  width: 78%;
+  max-height: 70%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kanvas-shape-arrow-body .kanvas-shape-text {
+  padding: 0 6px;
+}
+
+.kanvas-shape-arrow-body .kanvas-shape-text-body {
+  max-height: 44px;
+}
+
+/* ----------------------------- */
+/* Note Nodes                    */
+/* ----------------------------- */
+
+.kanvas-note {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  border: 1px solid #e6c752;
+  border-radius: 10px;
+  padding: 14px;
+  box-shadow: 0 8px 22px rgba(29, 38, 61, 0.14);
+  overflow: hidden;
+  color: #181b34;
+}
+
+.kanvas-note.selected {
+  outline: 3px solid #ffb800;
+  outline-offset: 4px;
+}
+
+.kanvas-note .react-flow__resize-control {
+  z-index: 20;
+}
+
+.kanvas-note-title {
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.kanvas-note-text {
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: calc(100% - 34px);
+  overflow: hidden;
+}
+
+.kanvas-toolbar-section {
+  margin-top: 10px;
+}
+
+.kanvas-toolbar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+
+  color: #676879;
+
+  cursor: pointer;
+
+  padding: 6px 4px;
+}
+
+.kanvas-toolbar-section-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kanvas-toolbar-chevron {
+  font-size: 10px;
+}
+
+/* ----------------------------- */
+/* Collapsible Toolbar Sections  */
+/* ----------------------------- */
+
+.kanvas-toolbar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.kanvas-toolbar-section-header {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  border: none;
+  background: transparent;
+  color: #676879;
+
+  padding: 6px 4px;
+  margin-top: 4px;
+
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+
+  cursor: pointer;
+}
+
+.kanvas-toolbar-section-header:hover {
+  background: #f5f7fb;
+  color: #181b34;
+}
+
+.kanvas-toolbar-section-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kanvas-toolbar-chevron {
+  font-size: 10px;
+  color: #9699a6;
+}
+
+/* ----------------------------- */
+/* Monday Column Preview         */
+/* ----------------------------- */
+
+.kanvas-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  max-height: 220px;
+  overflow-y: auto;
+
+  border: 1px solid #e2e5f0;
+  border-radius: 8px;
+  padding: 8px;
+
+  background: #f8f9fc;
+}
+
+.kanvas-column-list-item {
+  padding: 7px 8px;
+  border: 1px solid #eceef5;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.kanvas-column-list-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #181b34;
+  line-height: 1.25;
+}
+
+.kanvas-column-list-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #676879;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.kanvas-column-list-value {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #323338;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.kanvas-column-list-editor {
+  margin-top: 6px;
+}
+
+.kanvas-shape-line-container {
+  width: 100%;
+  height: 100%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kanvas-shape-line {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+}
+
+.kanvas-shape-line-container.selected .kanvas-shape-line {
+  box-shadow: 0 0 0 2px rgba(0, 115, 234, 0.2);
+}

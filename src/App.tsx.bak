@@ -1,0 +1,1804 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+} from "react";
+import mondaySdk from "monday-sdk-js";
+
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  NodeResizer,
+  addEdge,
+  useEdgesState,
+  useNodesState,
+  type Connection,
+  type Edge,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
+
+import "@xyflow/react/dist/style.css";
+import "./App.css";
+
+const monday = mondaySdk();
+
+type ShapeType = "rectangle" | "circle" | "triangle" | "hexagon" | "arrow";
+type ConnectorStyle = "straight" | "step" | "smoothstep";
+
+type CardData = Record<string, unknown> & {
+  nodeKind: "card";
+  title: string;
+  subtitle: string;
+  status: string;
+  owner: string;
+  color: string;
+  source: "monday" | "manual";
+  itemId?: string;
+  notes?: string;
+};
+
+type FrameData = Record<string, unknown> & {
+  nodeKind: "frame";
+  title: string;
+  description: string;
+  color: string;
+};
+
+type ShapeData = Record<string, unknown> & {
+  nodeKind: "shape";
+  shapeType: ShapeType;
+  label: string;
+  text: string;
+  fillColor: string;
+  borderColor: string;
+  rotation: number;
+};
+
+type NoteData = Record<string, unknown> & {
+  nodeKind: "note";
+  title: string;
+  text: string;
+  color: string;
+};
+
+type NodeData = CardData | FrameData | ShapeData | NoteData;
+type KNode = Node<NodeData>;
+
+type MondayContext = {
+  boardId?: string | number;
+};
+
+type MondayColumnValue = {
+  id: string;
+  text: string | null;
+  type: string;
+};
+
+type MondayItem = {
+  id: string;
+  name: string;
+  group?: {
+    id: string;
+    title: string;
+  };
+  column_values: MondayColumnValue[];
+};
+
+type MondayBoardResponse = {
+  boards?: Array<{
+    id: string;
+    name: string;
+    items_page?: {
+      items: MondayItem[];
+    };
+  }>;
+};
+
+type ConnectorData = {
+  connectorStyle: ConnectorStyle;
+  label: string;
+  color: string;
+  strokeWidth: number;
+  dashed: boolean;
+  arrowhead: boolean;
+  animated: boolean;
+};
+
+type SavedLayout = {
+  positions: Record<string, { x: number; y: number }>;
+  edges: Edge[];
+  manualNodes: Array<{
+    id: string;
+    position: { x: number; y: number };
+    data: CardData;
+  }>;
+  frameNodes: Array<{
+    id: string;
+    position: { x: number; y: number };
+    width: number;
+    height: number;
+    data: FrameData;
+  }>;
+  shapeNodes: Array<{
+    id: string;
+    position: { x: number; y: number };
+    width: number;
+    height: number;
+    data: ShapeData;
+  }>;
+  noteNodes: Array<{
+    id: string;
+    position: { x: number; y: number };
+    width: number;
+    height: number;
+    data: NoteData;
+  }>;
+};
+
+function getDefaultConnectorData(): ConnectorData {
+  return {
+    connectorStyle: "straight",
+    label: "",
+    color: "#0073ea",
+    strokeWidth: 2,
+    dashed: false,
+    arrowhead: true,
+    animated: false,
+  };
+}
+
+function getConnectorData(edge: Edge): ConnectorData {
+  return {
+    ...getDefaultConnectorData(),
+    ...(edge.data as Partial<ConnectorData> | undefined),
+  };
+}
+
+function applyConnectorVisuals(edge: Edge, connectorData: ConnectorData): Edge {
+  return {
+    ...edge,
+    type: connectorData.connectorStyle,
+    label: connectorData.label || undefined,
+    animated: connectorData.animated,
+    data: connectorData,
+    style: {
+      stroke: connectorData.color,
+      strokeWidth: connectorData.strokeWidth,
+      strokeDasharray: connectorData.dashed ? "8 6" : undefined,
+    },
+    markerEnd: connectorData.arrowhead
+      ? ({
+          type: "arrowclosed",
+          color: connectorData.color,
+        } as Edge["markerEnd"])
+      : undefined,
+  };
+}
+
+function normalizeConnector(edge: Edge): Edge {
+  return applyConnectorVisuals(edge, getConnectorData(edge));
+}
+
+function getLayoutStorageKey(boardId: string) {
+  return `kanvas-layout-${boardId}`;
+}
+
+function emptyLayout(): SavedLayout {
+  return {
+    positions: {},
+    edges: [],
+    manualNodes: [],
+    frameNodes: [],
+    shapeNodes: [],
+    noteNodes: [],
+  };
+}
+
+function readSavedLayout(boardId: string): SavedLayout {
+  try {
+    const raw = localStorage.getItem(getLayoutStorageKey(boardId));
+
+    if (!raw) {
+      return emptyLayout();
+    }
+
+    const parsed = JSON.parse(raw) as Partial<SavedLayout>;
+
+    return {
+      positions: parsed.positions ?? {},
+      edges: parsed.edges ?? [],
+      manualNodes: parsed.manualNodes ?? [],
+      frameNodes: parsed.frameNodes ?? [],
+      shapeNodes: parsed.shapeNodes ?? [],
+      noteNodes: parsed.noteNodes ?? [],
+    };
+  } catch (error) {
+    console.error("Failed to read Kanvas layout:", error);
+    return emptyLayout();
+  }
+}
+
+function getNodeWidth(node: KNode) {
+  const nodeWithDimensions = node as KNode & {
+    width?: number;
+    measured?: {
+      width?: number;
+    };
+  };
+
+  if (typeof nodeWithDimensions.width === "number") {
+    return nodeWithDimensions.width;
+  }
+
+  if (typeof nodeWithDimensions.measured?.width === "number") {
+    return nodeWithDimensions.measured.width;
+  }
+
+  const width = node.style?.width;
+
+  if (typeof width === "number") {
+    return width;
+  }
+
+  if (typeof width === "string") {
+    const parsed = Number(width.replace("px", ""));
+    return Number.isFinite(parsed) ? parsed : 560;
+  }
+
+  return 560;
+}
+
+function getNodeHeight(node: KNode) {
+  const nodeWithDimensions = node as KNode & {
+    height?: number;
+    measured?: {
+      height?: number;
+    };
+  };
+
+  if (typeof nodeWithDimensions.height === "number") {
+    return nodeWithDimensions.height;
+  }
+
+  if (typeof nodeWithDimensions.measured?.height === "number") {
+    return nodeWithDimensions.measured.height;
+  }
+
+  const height = node.style?.height;
+
+  if (typeof height === "number") {
+    return height;
+  }
+
+  if (typeof height === "string") {
+    const parsed = Number(height.replace("px", ""));
+    return Number.isFinite(parsed) ? parsed : 340;
+  }
+
+  return 340;
+}
+
+function saveLayout(boardId: string, nodes: KNode[], edges: Edge[]) {
+  try {
+    const positions: SavedLayout["positions"] = {};
+
+    nodes.forEach((node) => {
+      positions[node.id] = {
+        x: node.position.x,
+        y: node.position.y,
+      };
+    });
+
+    const manualNodes = nodes
+      .filter((node) => node.data.nodeKind === "card" && node.data.source === "manual")
+      .map((node) => ({
+        id: node.id,
+        position: node.position,
+        data: node.data as CardData,
+      }));
+
+    const frameNodes = nodes
+      .filter((node) => node.data.nodeKind === "frame")
+      .map((node) => ({
+        id: node.id,
+        position: node.position,
+        width: getNodeWidth(node),
+        height: getNodeHeight(node),
+        data: node.data as FrameData,
+      }));
+
+    const shapeNodes = nodes
+      .filter((node) => node.data.nodeKind === "shape")
+      .map((node) => ({
+        id: node.id,
+        position: node.position,
+        width: getNodeWidth(node),
+        height: getNodeHeight(node),
+        data: node.data as ShapeData,
+      }));
+
+    const noteNodes = nodes
+      .filter((node) => node.data.nodeKind === "note")
+      .map((node) => ({
+        id: node.id,
+        position: node.position,
+        width: getNodeWidth(node),
+        height: getNodeHeight(node),
+        data: node.data as NoteData,
+      }));
+
+    const layout: SavedLayout = {
+      positions,
+      edges: edges.map((edge) => normalizeConnector(edge)),
+      manualNodes,
+      frameNodes,
+      shapeNodes,
+      noteNodes,
+    };
+
+    localStorage.setItem(getLayoutStorageKey(boardId), JSON.stringify(layout));
+  } catch (error) {
+    console.error("Failed to save Kanvas layout:", error);
+  }
+}
+
+function clearSavedLayout(boardId: string) {
+  localStorage.removeItem(getLayoutStorageKey(boardId));
+}
+
+function isValidBoardId(boardId: string) {
+  return (
+    boardId &&
+    boardId !== "Loading..." &&
+    boardId !== "No board context" &&
+    boardId !== "Context error"
+  );
+}
+
+function getStatusColor(status: string) {
+  const s = status.toLowerCase();
+
+  if (s.includes("done") || s.includes("complete")) {
+    return "#00c875";
+  }
+
+  if (s.includes("working") || s.includes("progress")) {
+    return "#0073ea";
+  }
+
+  if (s.includes("stuck") || s.includes("blocked")) {
+    return "#e2445c";
+  }
+
+  if (s.includes("not") || s.includes("new")) {
+    return "#c4c4c4";
+  }
+
+  return "#a25ddc";
+}
+
+function getShapeLabel(shapeType: ShapeType) {
+  if (shapeType === "rectangle") return "Rectangle";
+  if (shapeType === "circle") return "Circle";
+  if (shapeType === "triangle") return "Triangle";
+  if (shapeType === "hexagon") return "Hexagon";
+  return "Arrow";
+}
+
+function getDefaultShapeSize(shapeType: ShapeType) {
+  if (shapeType === "arrow") {
+    return { width: 220, height: 90 };
+  }
+
+  if (shapeType === "triangle") {
+    return { width: 160, height: 140 };
+  }
+
+  return { width: 160, height: 110 };
+}
+
+function KanvasCard({ data, selected }: NodeProps<KNode>) {
+  const cardData = data as CardData;
+
+  return (
+    <div className={selected ? "kanvas-card selected" : "kanvas-card"}>
+      <Handle type="target" position={Position.Left} />
+
+      <div
+        className="kanvas-card-accent"
+        style={{ backgroundColor: cardData.color }}
+      />
+
+      <div className="kanvas-card-content">
+        <div className="kanvas-card-title">{cardData.title}</div>
+        <div className="kanvas-card-subtitle">{cardData.subtitle}</div>
+
+        <div className="kanvas-card-meta">
+          <span className="kanvas-pill">{cardData.status}</span>
+          <span className="kanvas-owner">{cardData.owner}</span>
+        </div>
+      </div>
+
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+
+function KanvasFrame({ data, selected }: NodeProps<KNode>) {
+  const frameData = data as FrameData;
+
+  return (
+    <div
+      className={selected ? "kanvas-frame selected" : "kanvas-frame"}
+      style={{
+        borderColor: frameData.color,
+        backgroundColor: `${frameData.color}14`,
+      }}
+    >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={280}
+        minHeight={160}
+        color={frameData.color}
+      />
+
+      <div className="kanvas-frame-header">
+        <div
+          className="kanvas-frame-dot"
+          style={{ backgroundColor: frameData.color }}
+        />
+
+        <div>
+          <div className="kanvas-frame-title">{frameData.title}</div>
+          <div className="kanvas-frame-description">
+            {frameData.description}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ShapeText({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="kanvas-shape-text">
+      <div className="kanvas-shape-text-title">{label}</div>
+      {text.trim() && <div className="kanvas-shape-text-body">{text}</div>}
+    </div>
+  );
+}
+
+function KanvasShape({ data, selected }: NodeProps<KNode>) {
+  const shapeData = data as ShapeData;
+
+  const transformStyle = {
+    transform: `rotate(${shapeData.rotation}deg)`,
+  };
+
+  return (
+    <div className="kanvas-shape-wrapper">
+      <NodeResizer
+        isVisible={selected}
+        minWidth={60}
+        minHeight={50}
+        color={shapeData.borderColor}
+      />
+
+      <Handle type="target" position={Position.Left} />
+      <Handle type="source" position={Position.Right} />
+
+      {shapeData.shapeType === "rectangle" && (
+        <div
+          className={selected ? "kanvas-shape selected" : "kanvas-shape"}
+          style={{
+            ...transformStyle,
+            backgroundColor: shapeData.fillColor,
+            borderColor: shapeData.borderColor,
+          }}
+        >
+          <ShapeText label={shapeData.label} text={shapeData.text} />
+        </div>
+      )}
+
+      {shapeData.shapeType === "circle" && (
+        <div
+          className={
+            selected
+              ? "kanvas-shape kanvas-shape-circle selected"
+              : "kanvas-shape kanvas-shape-circle"
+          }
+          style={{
+            ...transformStyle,
+            backgroundColor: shapeData.fillColor,
+            borderColor: shapeData.borderColor,
+          }}
+        >
+          <ShapeText label={shapeData.label} text={shapeData.text} />
+        </div>
+      )}
+
+      {shapeData.shapeType === "triangle" && (
+        <div
+          className={
+            selected
+              ? "kanvas-shape-triangle-container selected"
+              : "kanvas-shape-triangle-container"
+          }
+          style={transformStyle}
+        >
+          <div
+            className="kanvas-shape-triangle"
+            style={{
+              backgroundColor: shapeData.fillColor,
+              borderColor: shapeData.borderColor,
+            }}
+          />
+
+          <div className="kanvas-shape-triangle-label">
+            <ShapeText label={shapeData.label} text={shapeData.text} />
+          </div>
+        </div>
+      )}
+
+      {shapeData.shapeType === "hexagon" && (
+        <div
+          className={
+            selected
+              ? "kanvas-shape-hexagon-container selected"
+              : "kanvas-shape-hexagon-container"
+          }
+          style={transformStyle}
+        >
+          <div
+            className="kanvas-shape-hexagon"
+            style={{
+              backgroundColor: shapeData.fillColor,
+              borderColor: shapeData.borderColor,
+            }}
+          />
+
+          <div className="kanvas-shape-hexagon-label">
+            <ShapeText label={shapeData.label} text={shapeData.text} />
+          </div>
+        </div>
+      )}
+
+      {shapeData.shapeType === "arrow" && (
+        <div
+          className={
+            selected
+              ? "kanvas-shape-arrow-container selected"
+              : "kanvas-shape-arrow-container"
+          }
+          style={transformStyle}
+        >
+          <div
+            className="kanvas-shape-arrow-body"
+            style={{
+              backgroundColor: shapeData.fillColor,
+              borderColor: shapeData.borderColor,
+            }}
+          >
+            <ShapeText label={shapeData.label} text={shapeData.text} />
+          </div>
+
+          <div
+            className="kanvas-shape-arrow-head"
+            style={{
+              borderLeftColor: shapeData.fillColor,
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KanvasNote({ data, selected }: NodeProps<KNode>) {
+  const noteData = data as NoteData;
+
+  return (
+    <div
+      className={selected ? "kanvas-note selected" : "kanvas-note"}
+      style={{ backgroundColor: noteData.color }}
+    >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={180}
+        minHeight={140}
+        color="#ffb800"
+      />
+
+      <Handle type="target" position={Position.Left} />
+      <Handle type="source" position={Position.Right} />
+
+      <div className="kanvas-note-title">{noteData.title}</div>
+      <div className="kanvas-note-text">{noteData.text}</div>
+    </div>
+  );
+}
+
+const nodeTypes = {
+  kanvasCard: KanvasCard,
+  kanvasFrame: KanvasFrame,
+  kanvasShape: KanvasShape,
+  kanvasNote: KanvasNote,
+};
+
+const fallbackNodes: KNode[] = [
+  {
+    id: "sample-1",
+    type: "kanvasCard",
+    position: { x: 100, y: 100 },
+    data: {
+      nodeKind: "card",
+      title: "Sample Card",
+      subtitle: "Connect to a Monday board to load real items",
+      status: "Sample",
+      owner: "Kanvas",
+      color: "#0073ea",
+      source: "manual",
+      notes: "",
+    },
+  },
+];
+
+function App() {
+  const [boardId, setBoardId] = useState("Loading...");
+  const [boardName, setBoardName] = useState("");
+  const [contextStatus, setContextStatus] = useState(
+    "Reading Monday board context..."
+  );
+  const [hasLoadedBoardItems, setHasLoadedBoardItems] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<KNode | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState("");
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<KNode>(fallbackNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  const filteredNodes = useMemo(() => {
+    const search = searchText.trim().toLowerCase();
+
+    if (!search) return nodes;
+
+    return nodes.filter((node) => {
+      const data = node.data;
+
+      if (data.nodeKind === "frame") {
+        return `${data.title} ${data.description}`.toLowerCase().includes(search);
+      }
+
+      if (data.nodeKind === "shape") {
+        return `${data.shapeType} ${data.label} ${data.text}`
+          .toLowerCase()
+          .includes(search);
+      }
+
+      if (data.nodeKind === "note") {
+        return `${data.title} ${data.text}`.toLowerCase().includes(search);
+      }
+
+      return `${data.title} ${data.subtitle} ${data.status} ${data.owner} ${
+        data.notes || ""
+      } ${data.itemId || ""} ${data.source}`
+        .toLowerCase()
+        .includes(search);
+    });
+  }, [nodes, searchText]);
+
+  const filteredNodeIds = useMemo(
+    () => new Set(filteredNodes.map((node) => node.id)),
+    [filteredNodes]
+  );
+
+  const filteredEdges = useMemo(() => {
+    if (!searchText.trim()) return edges;
+
+    return edges.filter(
+      (edge) =>
+        filteredNodeIds.has(edge.source) && filteredNodeIds.has(edge.target)
+    );
+  }, [edges, filteredNodeIds, searchText]);
+
+  const selectedEdge = useMemo(() => {
+    if (!selectedEdgeId) return null;
+    return edges.find((edge) => edge.id === selectedEdgeId) ?? null;
+  }, [edges, selectedEdgeId]);
+
+  const selectedEdgeData = useMemo(() => {
+    if (!selectedEdge) return null;
+    return getConnectorData(selectedEdge);
+  }, [selectedEdge]);
+
+  const loadMondayItems = useCallback(
+    async (currentBoardId: string) => {
+      setContextStatus("Loading Monday board items...");
+      setHasLoadedBoardItems(false);
+      setSelectedNode(null);
+      setSelectedEdgeId(null);
+
+      const savedLayout = readSavedLayout(currentBoardId);
+
+      const query = `
+        query GetBoardItems($boardId: [ID!]) {
+          boards(ids: $boardId) {
+            id
+            name
+            items_page(limit: 50) {
+              items {
+                id
+                name
+                group {
+                  id
+                  title
+                }
+                column_values {
+                  id
+                  text
+                  type
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      try {
+        const response = (await monday.api(query, {
+          variables: { boardId: [currentBoardId] },
+        })) as { data?: MondayBoardResponse; errors?: unknown[] };
+
+        if (response.errors) {
+          console.error("Monday API errors:", response.errors);
+          setContextStatus("Monday API returned an error. Check Console.");
+          return;
+        }
+
+        const board = response.data?.boards?.[0];
+
+        if (!board) {
+          setContextStatus("No board data returned.");
+          setNodes(fallbackNodes);
+          setEdges([]);
+          return;
+        }
+
+        setBoardName(board.name);
+
+        const items = board.items_page?.items ?? [];
+
+        const itemNodes: KNode[] = items.map((item, index) => {
+          const statusColumn = item.column_values.find(
+            (column) => column.type === "status"
+          );
+
+          const personColumn = item.column_values.find(
+            (column) => column.type === "people" || column.type === "person"
+          );
+
+          const status = statusColumn?.text || "No status";
+          const owner = personColumn?.text || "Unassigned";
+
+          const defaultPosition = {
+            x: 100 + (index % 4) * 340,
+            y: 100 + Math.floor(index / 4) * 190,
+          };
+
+          return {
+            id: item.id,
+            type: "kanvasCard",
+            position: savedLayout.positions[item.id] ?? defaultPosition,
+            data: {
+              nodeKind: "card",
+              title: item.name,
+              subtitle: item.group?.title || "No group",
+              status,
+              owner,
+              color: getStatusColor(status),
+              itemId: item.id,
+              source: "monday",
+            },
+          };
+        });
+
+        const manualNodes: KNode[] = savedLayout.manualNodes.map((node) => ({
+          id: node.id,
+          type: "kanvasCard",
+          position: node.position,
+          data: { ...node.data, nodeKind: "card", source: "manual" },
+        }));
+
+        const frameNodes: KNode[] = savedLayout.frameNodes.map((node) => ({
+          id: node.id,
+          type: "kanvasFrame",
+          position: node.position,
+          style: { width: node.width, height: node.height, zIndex: -1 },
+          data: { ...node.data, nodeKind: "frame" },
+        }));
+
+        const shapeNodes: KNode[] = savedLayout.shapeNodes.map((node) => ({
+          id: node.id,
+          type: "kanvasShape",
+          position: node.position,
+          style: { width: node.width, height: node.height },
+          data: {
+            ...node.data,
+            nodeKind: "shape",
+            text: node.data.text ?? "",
+          },
+        }));
+
+        const noteNodes: KNode[] = savedLayout.noteNodes.map((node) => ({
+          id: node.id,
+          type: "kanvasNote",
+          position: node.position,
+          style: { width: node.width, height: node.height },
+          data: { ...node.data, nodeKind: "note" },
+        }));
+
+        const combinedNodes = [
+          ...frameNodes,
+          ...itemNodes,
+          ...manualNodes,
+          ...shapeNodes,
+          ...noteNodes,
+        ];
+
+        const validNodeIds = new Set(combinedNodes.map((node) => node.id));
+
+        const restoredEdges = savedLayout.edges
+          .filter(
+            (edge) =>
+              validNodeIds.has(edge.source) && validNodeIds.has(edge.target)
+          )
+          .map((edge) => normalizeConnector(edge));
+
+        setNodes(combinedNodes);
+        setEdges(restoredEdges);
+        setHasLoadedBoardItems(true);
+
+        setContextStatus(
+          items.length === 0
+            ? `Connected to ${board.name}, but no Monday items were found.`
+            : `Loaded ${items.length} items from ${board.name}`
+        );
+      } catch (error) {
+        console.error("Failed to load Monday items:", error);
+        setContextStatus("Failed to load Monday items. Check Console.");
+        setNodes(fallbackNodes);
+        setEdges([]);
+      }
+    },
+    [setNodes, setEdges]
+  );
+
+  useEffect(() => {
+    async function loadContext() {
+      try {
+        const response = (await monday.get("context")) as {
+          data: MondayContext;
+        };
+
+        const currentBoardId = response.data.boardId;
+
+        if (currentBoardId) {
+          const boardIdAsString = String(currentBoardId);
+
+          setBoardId(boardIdAsString);
+          setContextStatus("Connected to Monday board");
+
+          await loadMondayItems(boardIdAsString);
+        } else {
+          setBoardId("No board context");
+          setContextStatus("Running outside a Monday board context");
+          setNodes(fallbackNodes);
+          setEdges([]);
+        }
+      } catch (error) {
+        console.error("Failed to load Monday context:", error);
+        setBoardId("Context error");
+        setContextStatus("Unable to read Monday context");
+        setNodes(fallbackNodes);
+        setEdges([]);
+      }
+    }
+
+    loadContext();
+  }, [loadMondayItems, setNodes, setEdges]);
+
+  useEffect(() => {
+    if (hasLoadedBoardItems && isValidBoardId(boardId)) {
+      saveLayout(boardId, nodes, edges);
+    }
+  }, [nodes, edges, boardId, hasLoadedBoardItems]);
+
+  useEffect(() => {
+    if (!selectedNode) return;
+
+    const updatedSelectedNode = nodes.find(
+      (node) => node.id === selectedNode.id
+    );
+
+    if (updatedSelectedNode) {
+      setSelectedNode(updatedSelectedNode);
+    } else {
+      setSelectedNode(null);
+    }
+  }, [nodes, selectedNode]);
+
+  useEffect(() => {
+    if (!selectedEdgeId) return;
+
+    const edgeExists = edges.some((edge) => edge.id === selectedEdgeId);
+
+    if (!edgeExists) {
+      setSelectedEdgeId(null);
+    }
+  }, [edges, selectedEdgeId]);
+
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      const connectorData = getDefaultConnectorData();
+
+      const newEdge = applyConnectorVisuals(
+        {
+          ...connection,
+          id: `edge-${Date.now()}`,
+        } as Edge,
+        connectorData
+      );
+
+      setEdges((currentEdges) => addEdge(newEdge, currentEdges));
+    },
+    [setEdges]
+  );
+
+  const onNodeClick = useCallback(
+    (_event: MouseEvent, node: KNode) => {
+      setSelectedNode(node);
+      setSelectedEdgeId(null);
+    },
+    []
+  );
+
+  const onEdgeClick = useCallback((_event: MouseEvent, edge: Edge) => {
+    setSelectedEdgeId(edge.id);
+    setSelectedNode(null);
+  }, []);
+
+  const updateSelectedConnector = (updates: Partial<ConnectorData>) => {
+    if (!selectedEdgeId) return;
+
+    setEdges((currentEdges) =>
+      currentEdges.map((edge) => {
+        if (edge.id !== selectedEdgeId) return edge;
+
+        return applyConnectorVisuals(edge, {
+          ...getConnectorData(edge),
+          ...updates,
+        });
+      })
+    );
+  };
+
+  const deleteSelectedConnector = () => {
+    if (!selectedEdgeId) return;
+
+    setEdges((currentEdges) =>
+      currentEdges.filter((edge) => edge.id !== selectedEdgeId)
+    );
+
+    setSelectedEdgeId(null);
+  };
+
+  const addCard = () => {
+    const nextNumber = nodes.length + 1;
+
+    const newNode: KNode = {
+      id: `manual-${Date.now()}`,
+      type: "kanvasCard",
+      position: { x: 180 + nextNumber * 40, y: 260 + nextNumber * 20 },
+      data: {
+        nodeKind: "card",
+        title: `New Kanvas Card ${nextNumber}`,
+        subtitle: "Manual card not linked to Monday",
+        status: "Draft",
+        owner: "Unassigned",
+        color: "#ffcb00",
+        source: "manual",
+        notes: "",
+      },
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newNode]);
+    setSelectedNode(newNode);
+    setSelectedEdgeId(null);
+  };
+
+  const addFrame = () => {
+    const frameNumber =
+      nodes.filter((node) => node.data.nodeKind === "frame").length + 1;
+
+    const newFrame: KNode = {
+      id: `frame-${Date.now()}`,
+      type: "kanvasFrame",
+      position: { x: 80 + frameNumber * 40, y: 80 + frameNumber * 40 },
+      style: { width: 560, height: 340, zIndex: -1 },
+      data: {
+        nodeKind: "frame",
+        title: `Frame ${frameNumber}`,
+        description: "Visual grouping area",
+        color: "#0073ea",
+      },
+    };
+
+    setNodes((currentNodes) => [newFrame, ...currentNodes]);
+    setSelectedNode(newFrame);
+    setSelectedEdgeId(null);
+  };
+
+  const addNote = () => {
+    const noteNumber =
+      nodes.filter((node) => node.data.nodeKind === "note").length + 1;
+
+    const newNote: KNode = {
+      id: `note-${Date.now()}`,
+      type: "kanvasNote",
+      position: { x: 260 + noteNumber * 40, y: 220 + noteNumber * 30 },
+      style: { width: 260, height: 200 },
+      data: {
+        nodeKind: "note",
+        title: `Note ${noteNumber}`,
+        text: "Enter note text here...",
+        color: "#fff4c2",
+      },
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newNote]);
+    setSelectedNode(newNote);
+    setSelectedEdgeId(null);
+  };
+
+  const addShape = (shapeType: ShapeType) => {
+    const shapeNumber =
+      nodes.filter((node) => node.data.nodeKind === "shape").length + 1;
+
+    const size = getDefaultShapeSize(shapeType);
+
+    const newShape: KNode = {
+      id: `shape-${Date.now()}`,
+      type: "kanvasShape",
+      position: { x: 220 + shapeNumber * 40, y: 180 + shapeNumber * 30 },
+      style: { width: size.width, height: size.height },
+      data: {
+        nodeKind: "shape",
+        shapeType,
+        label: getShapeLabel(shapeType),
+        text: "",
+        fillColor: "#dff0ff",
+        borderColor: "#0073ea",
+        rotation: 0,
+      },
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newShape]);
+    setSelectedNode(newShape);
+    setSelectedEdgeId(null);
+  };
+
+  const addMindMapRoot = () => {
+    const rootCount =
+      nodes.filter(
+        (node) =>
+          node.data.nodeKind === "note" &&
+          String(node.id).startsWith("mind-root-")
+      ).length + 1;
+
+    const rootNode: KNode = {
+      id: `mind-root-${Date.now()}`,
+      type: "kanvasNote",
+      position: { x: 160 + rootCount * 40, y: 160 + rootCount * 40 },
+      style: { width: 280, height: 190 },
+      data: {
+        nodeKind: "note",
+        title: `Mind Map ${rootCount}`,
+        text: "Main idea",
+        color: "#fff4c2",
+      },
+    };
+
+    setNodes((currentNodes) => [...currentNodes, rootNode]);
+    setSelectedNode(rootNode);
+    setSelectedEdgeId(null);
+  };
+
+  const addMindMapChild = () => {
+    if (!selectedNode) return;
+
+    const childCount = edges.filter(
+      (edge) => edge.source === selectedNode.id
+    ).length;
+
+    const childNode: KNode = {
+      id: `mind-child-${Date.now()}`,
+      type: "kanvasNote",
+      position: {
+        x: selectedNode.position.x + getNodeWidth(selectedNode) + 180,
+        y: selectedNode.position.y + childCount * 150,
+      },
+      style: { width: 260, height: 180 },
+      data: {
+        nodeKind: "note",
+        title: "Child Idea",
+        text: "Add child idea details...",
+        color: "#e8f4ff",
+      },
+    };
+
+    const edge = applyConnectorVisuals(
+      {
+        id: `edge-${selectedNode.id}-${childNode.id}-${Date.now()}`,
+        source: selectedNode.id,
+        target: childNode.id,
+      } as Edge,
+      {
+        ...getDefaultConnectorData(),
+        connectorStyle: "smoothstep",
+        label: "Child",
+      }
+    );
+
+    setNodes((currentNodes) => [...currentNodes, childNode]);
+    setEdges((currentEdges) => addEdge(edge, currentEdges));
+    setSelectedNode(childNode);
+    setSelectedEdgeId(null);
+  };
+
+  const addMindMapSibling = () => {
+    if (!selectedNode) return;
+
+    const parentEdge = edges.find((edge) => edge.target === selectedNode.id);
+    const parentNode = parentEdge
+      ? nodes.find((node) => node.id === parentEdge.source)
+      : null;
+
+    const siblingCount = parentEdge
+      ? edges.filter((edge) => edge.source === parentEdge.source).length
+      : 0;
+
+    const siblingNode: KNode = {
+      id: `mind-sibling-${Date.now()}`,
+      type: "kanvasNote",
+      position: {
+        x: selectedNode.position.x,
+        y: selectedNode.position.y + 150,
+      },
+      style: { width: 260, height: 180 },
+      data: {
+        nodeKind: "note",
+        title: "Sibling Idea",
+        text: "Add sibling idea details...",
+        color: "#f0f7ff",
+      },
+    };
+
+    setNodes((currentNodes) => [...currentNodes, siblingNode]);
+
+    if (parentNode && parentEdge) {
+      const edge = applyConnectorVisuals(
+        {
+          id: `edge-${parentNode.id}-${siblingNode.id}-${Date.now()}`,
+          source: parentNode.id,
+          target: siblingNode.id,
+        } as Edge,
+        {
+          ...getDefaultConnectorData(),
+          connectorStyle: "smoothstep",
+          label: "Sibling",
+        }
+      );
+
+      setEdges((currentEdges) => addEdge(edge, currentEdges));
+
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => {
+          if (node.id !== siblingNode.id) return node;
+
+          return {
+            ...node,
+            position: {
+              x: selectedNode.position.x,
+              y: parentNode.position.y + 150 * (siblingCount + 1),
+            },
+          };
+        })
+      );
+    }
+
+    setSelectedNode(siblingNode);
+    setSelectedEdgeId(null);
+  };
+
+  const updateSelectedNodeData = (updates: Partial<NodeData>) => {
+    if (!selectedNode) return;
+
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        if (node.id !== selectedNode.id) return node;
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            ...updates,
+          } as NodeData,
+        };
+      })
+    );
+  };
+
+  const deleteSelectedNode = () => {
+    if (!selectedNode) return;
+
+    if (
+      selectedNode.data.nodeKind === "card" &&
+      selectedNode.data.source === "monday"
+    ) {
+      return;
+    }
+
+    setNodes((currentNodes) =>
+      currentNodes.filter((node) => node.id !== selectedNode.id)
+    );
+
+    setEdges((currentEdges) =>
+      currentEdges.filter(
+        (edge) =>
+          edge.source !== selectedNode.id && edge.target !== selectedNode.id
+      )
+    );
+
+    setSelectedNode(null);
+  };
+
+  const openSelectedMondayItem = async () => {
+    if (
+      !selectedNode ||
+      selectedNode.data.nodeKind !== "card" ||
+      selectedNode.data.source !== "monday" ||
+      !selectedNode.data.itemId
+    ) {
+      return;
+    }
+
+    await monday.execute("openItemCard", {
+      itemId: Number(selectedNode.data.itemId),
+      kind: "columns",
+    });
+  };
+
+  const refreshItems = () => {
+    if (isValidBoardId(boardId)) {
+      loadMondayItems(boardId);
+    }
+  };
+
+  const clearConnectors = () => {
+    setEdges([]);
+    setSelectedEdgeId(null);
+  };
+
+  const resetSavedLayout = () => {
+    if (isValidBoardId(boardId)) {
+      clearSavedLayout(boardId);
+      setSearchText("");
+      setSelectedNode(null);
+      setSelectedEdgeId(null);
+      loadMondayItems(boardId);
+    }
+  };
+
+  const closeDetailsPanel = () => {
+    setSelectedNode(null);
+    setSelectedEdgeId(null);
+  };
+
+  return (
+    <div className="kanvas-app">
+      <div className="kanvas-toolbar">
+        <div>
+          <div className="kanvas-logo">Kanvas</div>
+          <div className="kanvas-caption">
+            {contextStatus}
+            {boardName ? ` | Board: ${boardName}` : ""}
+            {boardId ? ` | Board ID: ${boardId}` : ""}
+            {searchText.trim()
+              ? ` | Showing ${filteredNodes.length} of ${nodes.length} objects`
+              : ""}
+          </div>
+        </div>
+
+        <div className="kanvas-toolbar-actions">
+          <input
+            className="kanvas-search"
+            placeholder="Search cards, frames, shapes, notes..."
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+          />
+
+          {searchText.trim() && (
+            <button onClick={() => setSearchText("")}>Clear Search</button>
+          )}
+
+          <button onClick={refreshItems}>Refresh Items</button>
+          <button onClick={addCard}>Add Manual Card</button>
+          <button onClick={addFrame}>Add Frame</button>
+          <button onClick={addNote}>Add Note</button>
+
+          <button onClick={addMindMapRoot}>Mind Map Root</button>
+          <button onClick={addMindMapChild} disabled={!selectedNode}>
+            Add Child
+          </button>
+          <button onClick={addMindMapSibling} disabled={!selectedNode}>
+            Add Sibling
+          </button>
+
+          <button onClick={() => addShape("rectangle")}>Rectangle</button>
+          <button onClick={() => addShape("circle")}>Circle</button>
+          <button onClick={() => addShape("triangle")}>Triangle</button>
+          <button onClick={() => addShape("hexagon")}>Hexagon</button>
+          <button onClick={() => addShape("arrow")}>Arrow</button>
+
+          <button onClick={clearConnectors}>Clear Connectors</button>
+          <button onClick={resetSavedLayout}>Clear Saved Layout</button>
+        </div>
+      </div>
+
+      <div className="kanvas-body">
+        <div className="kanvas-flow-wrapper">
+          <ReactFlow<KNode, Edge>
+            nodes={filteredNodes}
+            edges={filteredEdges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
+            onPaneClick={closeDetailsPanel}
+            fitView
+            deleteKeyCode={["Backspace", "Delete"]}
+          >
+            <Background gap={24} size={1} />
+            <Controls />
+            <MiniMap />
+          </ReactFlow>
+        </div>
+
+        {selectedEdge && selectedEdgeData && (
+          <aside className="kanvas-details-panel">
+            <div className="kanvas-details-header">
+              <div>
+                <div className="kanvas-details-title">Connector Details</div>
+                <div className="kanvas-details-subtitle">
+                  {selectedEdge.source} → {selectedEdge.target}
+                </div>
+              </div>
+
+              <button className="kanvas-icon-button" onClick={closeDetailsPanel}>
+                ×
+              </button>
+            </div>
+
+            <div className="kanvas-details-section">
+              <label>Connector Label</label>
+              <input
+                className="kanvas-details-input"
+                value={selectedEdgeData.label}
+                onChange={(event) =>
+                  updateSelectedConnector({ label: event.target.value })
+                }
+              />
+            </div>
+
+            <div className="kanvas-details-section">
+              <label>Connector Type</label>
+              <select
+                className="kanvas-details-input"
+                value={selectedEdgeData.connectorStyle}
+                onChange={(event) =>
+                  updateSelectedConnector({
+                    connectorStyle: event.target.value as ConnectorStyle,
+                  })
+                }
+              >
+                <option value="straight">Straight</option>
+                <option value="step">Elbow</option>
+                <option value="smoothstep">Smooth Elbow</option>
+              </select>
+            </div>
+
+            <div className="kanvas-details-grid">
+              <div className="kanvas-details-section">
+                <label>Color</label>
+                <input
+                  className="kanvas-details-color"
+                  type="color"
+                  value={selectedEdgeData.color}
+                  onChange={(event) =>
+                    updateSelectedConnector({ color: event.target.value })
+                  }
+                />
+              </div>
+
+              <div className="kanvas-details-section">
+                <label>Width</label>
+                <input
+                  className="kanvas-details-input"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={selectedEdgeData.strokeWidth}
+                  onChange={(event) =>
+                    updateSelectedConnector({
+                      strokeWidth: Number(event.target.value),
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="kanvas-details-section">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={selectedEdgeData.arrowhead}
+                  onChange={(event) =>
+                    updateSelectedConnector({ arrowhead: event.target.checked })
+                  }
+                />{" "}
+                Show arrowhead
+              </label>
+            </div>
+
+            <div className="kanvas-details-section">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={selectedEdgeData.dashed}
+                  onChange={(event) =>
+                    updateSelectedConnector({ dashed: event.target.checked })
+                  }
+                />{" "}
+                Dashed line
+              </label>
+            </div>
+
+            <div className="kanvas-details-section">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={selectedEdgeData.animated}
+                  onChange={(event) =>
+                    updateSelectedConnector({ animated: event.target.checked })
+                  }
+                />{" "}
+                Animate connector
+              </label>
+            </div>
+
+            <div className="kanvas-details-actions">
+              <button
+                className="kanvas-danger-button"
+                onClick={deleteSelectedConnector}
+              >
+                Delete Connector
+              </button>
+            </div>
+          </aside>
+        )}
+
+        {selectedNode && (
+          <aside className="kanvas-details-panel">
+            <div className="kanvas-details-header">
+              <div>
+                <div className="kanvas-details-title">
+                  {selectedNode.data.nodeKind === "frame"
+                    ? "Frame Details"
+                    : selectedNode.data.nodeKind === "shape"
+                      ? "Shape Details"
+                      : selectedNode.data.nodeKind === "note"
+                        ? "Note Details"
+                        : "Card Details"}
+                </div>
+                <div className="kanvas-details-subtitle">
+                  {selectedNode.data.nodeKind === "frame"
+                    ? "Visual grouping frame"
+                    : selectedNode.data.nodeKind === "shape"
+                      ? `${selectedNode.data.shapeType} shape`
+                      : selectedNode.data.nodeKind === "note"
+                        ? "Editable note card"
+                        : selectedNode.data.source === "monday"
+                          ? "Linked Monday item"
+                          : "Manual Kanvas card"}
+                </div>
+              </div>
+
+              <button className="kanvas-icon-button" onClick={closeDetailsPanel}>
+                ×
+              </button>
+            </div>
+
+            {selectedNode.data.nodeKind === "frame" && (
+              <>
+                <div className="kanvas-details-section">
+                  <label>Frame Title</label>
+                  <input
+                    className="kanvas-details-input"
+                    value={selectedNode.data.title}
+                    onChange={(event) =>
+                      updateSelectedNodeData({ title: event.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="kanvas-details-section">
+                  <label>Description</label>
+                  <textarea
+                    className="kanvas-details-textarea"
+                    value={selectedNode.data.description}
+                    onChange={(event) =>
+                      updateSelectedNodeData({
+                        description: event.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="kanvas-details-section">
+                  <label>Frame Color</label>
+                  <input
+                    className="kanvas-details-color"
+                    type="color"
+                    value={selectedNode.data.color}
+                    onChange={(event) =>
+                      updateSelectedNodeData({ color: event.target.value })
+                    }
+                  />
+                </div>
+              </>
+            )}
+
+            {selectedNode.data.nodeKind === "shape" && (
+              <>
+                <div className="kanvas-details-section">
+                  <label>Shape Type</label>
+                  <select
+                    className="kanvas-details-input"
+                    value={selectedNode.data.shapeType}
+                    onChange={(event) =>
+                      updateSelectedNodeData({
+                        shapeType: event.target.value as ShapeType,
+                      })
+                    }
+                  >
+                    <option value="rectangle">Rectangle</option>
+                    <option value="circle">Circle</option>
+                    <option value="triangle">Triangle</option>
+                    <option value="hexagon">Hexagon</option>
+                    <option value="arrow">Arrow</option>
+                  </select>
+                </div>
+
+                <div className="kanvas-details-section">
+                  <label>Label</label>
+                  <input
+                    className="kanvas-details-input"
+                    value={selectedNode.data.label}
+                    onChange={(event) =>
+                      updateSelectedNodeData({ label: event.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="kanvas-details-section">
+                  <label>Text</label>
+                  <textarea
+                    className="kanvas-details-textarea"
+                    value={selectedNode.data.text}
+                    onChange={(event) =>
+                      updateSelectedNodeData({ text: event.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="kanvas-details-grid">
+                  <div className="kanvas-details-section">
+                    <label>Fill Color</label>
+                    <input
+                      className="kanvas-details-color"
+                      type="color"
+                      value={selectedNode.data.fillColor}
+                      onChange={(event) =>
+                        updateSelectedNodeData({
+                          fillColor: event.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="kanvas-details-section">
+                    <label>Border Color</label>
+                    <input
+                      className="kanvas-details-color"
+                      type="color"
+                      value={selectedNode.data.borderColor}
+                      onChange={(event) =>
+                        updateSelectedNodeData({
+                          borderColor: event.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="kanvas-details-section">
+                  <label>Rotation</label>
+                  <input
+                    className="kanvas-details-input"
+                    type="number"
+                    value={selectedNode.data.rotation}
+                    onChange={(event) =>
+                      updateSelectedNodeData({
+                        rotation: Number(event.target.value),
+                      })
+                    }
+                  />
+                </div>
+              </>
+            )}
+
+            {selectedNode.data.nodeKind === "note" && (
+              <>
+                <div className="kanvas-details-section">
+                  <label>Note Title</label>
+                  <input
+                    className="kanvas-details-input"
+                    value={selectedNode.data.title}
+                    onChange={(event) =>
+                      updateSelectedNodeData({ title: event.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="kanvas-details-section">
+                  <label>Note Text</label>
+                  <textarea
+                    className="kanvas-details-textarea"
+                    value={selectedNode.data.text}
+                    onChange={(event) =>
+                      updateSelectedNodeData({ text: event.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="kanvas-details-section">
+                  <label>Note Color</label>
+                  <input
+                    className="kanvas-details-color"
+                    type="color"
+                    value={selectedNode.data.color}
+                    onChange={(event) =>
+                      updateSelectedNodeData({ color: event.target.value })
+                    }
+                  />
+                </div>
+              </>
+            )}
+
+            {selectedNode.data.nodeKind === "card" &&
+              selectedNode.data.source === "manual" && (
+                <>
+                  <div className="kanvas-details-section">
+                    <label>Title</label>
+                    <input
+                      className="kanvas-details-input"
+                      value={selectedNode.data.title}
+                      onChange={(event) =>
+                        updateSelectedNodeData({ title: event.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="kanvas-details-section">
+                    <label>Subtitle</label>
+                    <input
+                      className="kanvas-details-input"
+                      value={selectedNode.data.subtitle}
+                      onChange={(event) =>
+                        updateSelectedNodeData({
+                          subtitle: event.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="kanvas-details-section">
+                    <label>Notes</label>
+                    <textarea
+                      className="kanvas-details-textarea"
+                      value={selectedNode.data.notes || ""}
+                      onChange={(event) =>
+                        updateSelectedNodeData({ notes: event.target.value })
+                      }
+                    />
+                  </div>
+                </>
+              )}
+
+            {selectedNode.data.nodeKind === "card" &&
+              selectedNode.data.source === "monday" && (
+                <>
+                  <div className="kanvas-details-section">
+                    <label>Title</label>
+                    <div className="kanvas-details-value">
+                      {selectedNode.data.title}
+                    </div>
+                  </div>
+
+                  <div className="kanvas-details-section">
+                    <label>Status</label>
+                    <div className="kanvas-details-value">
+                      {selectedNode.data.status}
+                    </div>
+                  </div>
+
+                  <div className="kanvas-details-section">
+                    <label>Owner</label>
+                    <div className="kanvas-details-value">
+                      {selectedNode.data.owner}
+                    </div>
+                  </div>
+                </>
+              )}
+
+            <div className="kanvas-details-actions">
+              <button
+                onClick={openSelectedMondayItem}
+                disabled={
+                  selectedNode.data.nodeKind !== "card" ||
+                  selectedNode.data.source !== "monday"
+                }
+              >
+                Open Monday Item
+              </button>
+
+              {(selectedNode.data.nodeKind === "frame" ||
+                selectedNode.data.nodeKind === "shape" ||
+                selectedNode.data.nodeKind === "note" ||
+                (selectedNode.data.nodeKind === "card" &&
+                  selectedNode.data.source === "manual")) && (
+                <button
+                  className="kanvas-danger-button"
+                  onClick={deleteSelectedNode}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+          </aside>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;
