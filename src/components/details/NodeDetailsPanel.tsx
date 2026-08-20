@@ -427,6 +427,7 @@ export function NodeDetailsPanel({
               <option value="triangle">Triangle</option>
               <option value="hexagon">Hexagon</option>
               <option value="arrow">Arrow</option>
+              <option value="line">Line</option>
             </select>
           </div>
 
