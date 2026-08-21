@@ -497,6 +497,7 @@ const addShape = (shapeType: ShapeType) => {
       fillColor: "#dff0ff",
       borderColor: "#0073ea",
       rotation: 0,
+      lineThickness: 4,
     },
   };
 

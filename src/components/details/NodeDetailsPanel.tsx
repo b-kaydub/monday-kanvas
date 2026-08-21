@@ -485,6 +485,36 @@ export function NodeDetailsPanel({
             </div>
           </div>
 
+          {selectedNode.data.shapeType === "line" && (
+            <div className="kanvas-details-section">
+              <label>Line Thickness</label>
+
+              <select
+                className="kanvas-details-input"
+                value={
+                  selectedNode.data.lineThickness ?? 4
+                }
+                onChange={(event) =>
+                  updateSelectedNodeData({
+                    lineThickness: Number(
+                      event.target.value
+                    ),
+                  })
+                }
+              >
+                <option value={1}>1 px</option>
+                <option value={2}>2 px</option>
+                <option value={4}>4 px</option>
+                <option value={6}>6 px</option>
+                <option value={8}>8 px</option>
+                <option value={10}>10 px</option>
+                <option value={12}>12 px</option>
+                <option value={16}>16 px</option>
+              </select>
+            </div>
+          )}
+
+
           <div className="kanvas-details-section">
             <label>Rotation</label>
             <input

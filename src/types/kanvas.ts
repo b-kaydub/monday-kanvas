@@ -48,6 +48,7 @@ export type ShapeData = Record<string, unknown> & {
   fillColor: string;
   borderColor: string;
   rotation: number;
+  lineThickness?: number;
 };
 
 export type NoteData = Record<string, unknown> & {

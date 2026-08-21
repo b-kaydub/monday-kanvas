@@ -44,6 +44,9 @@ export function KanvasShape({
   const isVerticalLine =
     isLine && shapeData.rotation === 90;
 
+  const lineThickness =
+    shapeData.lineThickness ?? 4;
+
   const transformStyle = {
     transform: `rotate(${shapeData.rotation}deg)`,
   };
@@ -234,17 +237,25 @@ export function KanvasShape({
               : "kanvas-shape-line-container"
           }
         >
-          <div
-            className={
-              isVerticalLine
-                ? "kanvas-shape-line vertical"
-                : "kanvas-shape-line horizontal"
-            }
-            style={{
-              backgroundColor:
-                shapeData.borderColor,
-            }}
-          />
+        <div
+          className={
+            isVerticalLine
+              ? "kanvas-shape-line vertical"
+              : "kanvas-shape-line horizontal"
+          }
+          style={{
+            backgroundColor:
+              shapeData.borderColor,
+
+            ...(isVerticalLine
+              ? {
+                  width: `${lineThickness}px`,
+                }
+              : {
+                  height: `${lineThickness}px`,
+                }),
+          }}
+        />
         </div>
       )}
     </div>
