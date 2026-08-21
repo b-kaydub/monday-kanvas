@@ -55,6 +55,7 @@ export type NoteData = Record<string, unknown> & {
   title: string;
   text: string;
   color: string;
+  fontSize: number;
 };
 
 export type NodeData = CardData | FrameData | ShapeData | NoteData;

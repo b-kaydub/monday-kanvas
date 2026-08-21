@@ -302,13 +302,11 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
   useEffect(() => {
     if (!selectedNode) return;
 
-    const updatedSelectedNode = nodes.find(
+    const selectedNodeStillExists = nodes.some(
       (node) => node.id === selectedNode.id
     );
 
-    if (updatedSelectedNode) {
-      setSelectedNode(updatedSelectedNode);
-    } else {
+    if (!selectedNodeStillExists) {
       setSelectedNode(null);
     }
   }, [nodes, selectedNode]);
@@ -439,6 +437,7 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
         title: `Note ${noteNumber}`,
         text: "Enter note text here...",
         color: "#fff4c2",
+        fontSize: 16,
       },
     };
 
@@ -492,6 +491,7 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
         title: `Mind Map ${rootCount}`,
         text: "Main idea",
         color: "#fff4c2",
+        fontSize: 16,
       },
     };
 
@@ -520,6 +520,7 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
         title: "Child Idea",
         text: "Add child idea details...",
         color: "#e8f4ff",
+        fontSize: 16,
       },
     };
 
@@ -567,6 +568,7 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
         title: "Sibling Idea",
         text: "Add sibling idea details...",
         color: "#f0f7ff",
+        fontSize: 16,
       },
     };
 
@@ -729,9 +731,30 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
   const updateSelectedNodeData = (updates: Partial<NodeData>) => {
     if (!selectedNode) return;
 
+    const selectedNodeId = selectedNode.id;
+
+    setSelectedNode((currentSelectedNode) => {
+      if (
+        !currentSelectedNode ||
+        currentSelectedNode.id !== selectedNodeId
+      ) {
+        return currentSelectedNode;
+      }
+
+      return {
+        ...currentSelectedNode,
+        data: {
+          ...currentSelectedNode.data,
+          ...updates,
+        } as NodeData,
+      };
+    });
+
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
-        if (node.id !== selectedNode.id) return node;
+        if (node.id !== selectedNodeId) {
+          return node;
+        }
 
         return {
           ...node,
@@ -743,6 +766,7 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
       })
     );
   };
+
 
   const deleteSelectedNode = () => {
     if (!selectedNode) return;
@@ -767,6 +791,65 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
 
     setSelectedNode(null);
   };
+
+  const duplicateSelectedNode = () => {
+    if (!selectedNode) return;
+
+    if (
+      selectedNode.data.nodeKind === "card" &&
+      selectedNode.data.source === "monday"
+    ) {
+      return;
+    }
+
+    const duplicatedNode: KNode = {
+      ...selectedNode,
+
+      id: `${selectedNode.id}-copy-${Date.now()}`,
+
+      position: {
+        x: selectedNode.position.x + 40,
+        y: selectedNode.position.y + 40,
+      },
+
+      data: {
+        ...selectedNode.data,
+
+        ...(selectedNode.data.nodeKind === "card"
+          ? {
+              title: `${selectedNode.data.title} Copy`,
+            }
+          : {}),
+
+        ...(selectedNode.data.nodeKind === "note"
+          ? {
+              title: `${selectedNode.data.title} Copy`,
+            }
+          : {}),
+
+        ...(selectedNode.data.nodeKind === "frame"
+          ? {
+              title: `${selectedNode.data.title} Copy`,
+            }
+          : {}),
+
+        ...(selectedNode.data.nodeKind === "shape"
+          ? {
+              label: `${selectedNode.data.label} Copy`,
+            }
+          : {}),
+      },
+    };
+
+    setNodes((currentNodes) => [
+      ...currentNodes,
+      duplicatedNode,
+    ]);
+
+    setSelectedNode(duplicatedNode);
+    setSelectedEdgeId(null);
+  };
+  
 
   const openSelectedMondayItem = async () => {
     if (
@@ -1158,6 +1241,7 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
             isCreatingMondayItem={isCreatingMondayItem}
             isSavingMondayChanges={isSavingMondayChanges}
             deleteSelectedNode={deleteSelectedNode}
+            duplicateSelectedNode={duplicateSelectedNode}
           />
         )}
       </div>

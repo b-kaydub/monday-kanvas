@@ -16,6 +16,7 @@ type NodeDetailsPanelProps = {
   isCreatingMondayItem: boolean;
   isSavingMondayChanges: boolean;
   deleteSelectedNode: () => void;
+  duplicateSelectedNode: () => void;
 };
 
 const editableMondayColumnTypes = new Set([
@@ -178,6 +179,7 @@ export function NodeDetailsPanel({
   isCreatingMondayItem,
   isSavingMondayChanges,
   deleteSelectedNode,
+  duplicateSelectedNode,
 }: NodeDetailsPanelProps) {
   const updateDraftMondayValue = (columnId: string, value: string) => {
     if (selectedNode.data.nodeKind !== "card") {
@@ -503,34 +505,70 @@ export function NodeDetailsPanel({
         <>
           <div className="kanvas-details-section">
             <label>Note Title</label>
+
             <input
               className="kanvas-details-input"
               value={selectedNode.data.title}
               onChange={(event) =>
-                updateSelectedNodeData({ title: event.target.value })
+                updateSelectedNodeData({
+                  title: event.target.value,
+                })
               }
             />
           </div>
 
           <div className="kanvas-details-section">
             <label>Note Text</label>
+
             <textarea
               className="kanvas-details-textarea"
               value={selectedNode.data.text}
               onChange={(event) =>
-                updateSelectedNodeData({ text: event.target.value })
+                updateSelectedNodeData({
+                  text: event.target.value,
+                })
               }
             />
           </div>
 
           <div className="kanvas-details-section">
+            <label>Text Font Size</label>
+
+            <select
+              className="kanvas-details-input"
+              value={selectedNode.data.fontSize ?? 16}
+              onChange={(event) =>
+                updateSelectedNodeData({
+                  fontSize: Number(event.target.value),
+                })
+              }
+            >
+              <option value={8}>8 px</option>
+              <option value={10}>10 px</option>
+              <option value={12}>12 px</option>
+              <option value={14}>14 px</option>
+              <option value={16}>16 px</option>
+              <option value={18}>18 px</option>
+              <option value={20}>20 px</option>
+              <option value={24}>24 px</option>
+              <option value={28}>28 px</option>
+              <option value={32}>32 px</option>
+              <option value={40}>40 px</option>
+              <option value={48}>48 px</option>
+            </select>
+          </div>
+
+          <div className="kanvas-details-section">
             <label>Note Color</label>
+
             <input
               className="kanvas-details-color"
               type="color"
               value={selectedNode.data.color}
               onChange={(event) =>
-                updateSelectedNodeData({ color: event.target.value })
+                updateSelectedNodeData({
+                  color: event.target.value,
+                })
               }
             />
           </div>
@@ -668,12 +706,18 @@ export function NodeDetailsPanel({
           selectedNode.data.nodeKind === "note" ||
           (selectedNode.data.nodeKind === "card" &&
             selectedNode.data.source === "manual")) && (
-          <button
-            className="kanvas-danger-button"
-            onClick={deleteSelectedNode}
-          >
-            Delete
-          </button>
+          <>
+            <button onClick={duplicateSelectedNode}>
+              Duplicate
+            </button>
+
+            <button
+              className="kanvas-danger-button"
+              onClick={deleteSelectedNode}
+            >
+              Delete
+            </button>
+          </>
         )}
       </div>
     </aside>
