@@ -2,8 +2,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import mondaySdk from "monday-sdk-js";
 
@@ -102,13 +104,23 @@ function App() {
 
   const { wrapLoader } = useMondayBoardLoader();
 
-const [selectedNode, setSelectedNode] = useState<KNode | null>(null);
-const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-const [searchText, setSearchText] = useState("");
-const [flowInstance, setFlowInstance] = useState<any>(null);
-const [isCreatingMondayItem, setIsCreatingMondayItem] = useState(false);
-const [isSavingMondayChanges, setIsSavingMondayChanges] = useState(false);
-const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
+  const [selectedNode, setSelectedNode] = useState<KNode | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [flowInstance, setFlowInstance] = useState<any>(null);
+  const [isCreatingMondayItem, setIsCreatingMondayItem] = useState(false);
+  const [isSavingMondayChanges, setIsSavingMondayChanges] = useState(false);
+  const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
+  const [copiedNodes, setCopiedNodes] = useState<KNode[]>([]);
+
+  const [isDrawingLine, setIsDrawingLine] = useState(false);
+
+  const lineDrawStartRef = useRef<{
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const draftLineIdRef = useRef<string | null>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<KNode>(fallbackNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -446,32 +458,56 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
     setSelectedEdgeId(null);
   };
 
-  const addShape = (shapeType: ShapeType) => {
-    const shapeNumber =
-      nodes.filter((node) => node.data.nodeKind === "shape").length + 1;
-
-    const size = getDefaultShapeSize(shapeType);
-
-    const newShape: KNode = {
-      id: `shape-${Date.now()}`,
-      type: "kanvasShape",
-      position: { x: 220 + shapeNumber * 40, y: 180 + shapeNumber * 30 },
-      style: { width: size.width, height: size.height },
-      data: {
-        nodeKind: "shape",
-        shapeType,
-        label: getShapeLabel(shapeType),
-        text: "",
-        fillColor: "#dff0ff",
-        borderColor: "#0073ea",
-        rotation: 0,
-      },
-    };
-
-    setNodes((currentNodes) => [...currentNodes, newShape]);
-    setSelectedNode(newShape);
+const addShape = (shapeType: ShapeType) => {
+  if (shapeType === "line") {
+    setIsDrawingLine(true);
+    lineDrawStartRef.current = null;
+    draftLineIdRef.current = null;
+    setSelectedNode(null);
     setSelectedEdgeId(null);
+    setContextStatus(
+      "Line tool active. Drag on the canvas to draw a horizontal or vertical line."
+    );
+    return;
+  }
+
+  const shapeNumber =
+    nodes.filter(
+      (node) => node.data.nodeKind === "shape"
+    ).length + 1;
+
+  const size = getDefaultShapeSize(shapeType);
+
+  const newShape: KNode = {
+    id: `shape-${Date.now()}`,
+    type: "kanvasShape",
+    position: {
+      x: 220 + shapeNumber * 40,
+      y: 180 + shapeNumber * 30,
+    },
+    style: {
+      width: size.width,
+      height: size.height,
+    },
+    data: {
+      nodeKind: "shape",
+      shapeType,
+      label: getShapeLabel(shapeType),
+      text: "",
+      fillColor: "#dff0ff",
+      borderColor: "#0073ea",
+      rotation: 0,
+    },
   };
+
+  setNodes((currentNodes) => [
+    ...currentNodes,
+    newShape,
+  ]);
+
+  setSelectedNode(newShape);
+  setSelectedEdgeId(null);
+};
 
   const addMindMapRoot = () => {
     const rootCount =
@@ -702,6 +738,210 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
     );
   };
 
+const startDrawingLine = (
+  event: ReactPointerEvent<HTMLDivElement>
+) => {
+  if (!isDrawingLine || !flowInstance) {
+    return;
+  }
+
+  if (event.button !== 0) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const startPoint =
+    flowInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+  const lineId = `shape-line-${Date.now()}`;
+
+  lineDrawStartRef.current = startPoint;
+  draftLineIdRef.current = lineId;
+
+  event.currentTarget.setPointerCapture(
+    event.pointerId
+  );
+
+  const newLine: KNode = {
+    id: lineId,
+    type: "kanvasShape",
+    position: {
+      x: startPoint.x,
+      y: startPoint.y - 10,
+    },
+    style: {
+      width: 20,
+      height: 20,
+    },
+    selected: true,
+    data: {
+      nodeKind: "shape",
+      shapeType: "line",
+      label: "Line",
+      text: "",
+      fillColor: "transparent",
+      borderColor: "#0073ea",
+      rotation: 0,
+    },
+  };
+
+  setNodes((currentNodes) => [
+    ...currentNodes.map((node) => ({
+      ...node,
+      selected: false,
+    })),
+    newLine,
+  ]);
+
+  setSelectedNode(newLine);
+  setSelectedEdgeId(null);
+};
+
+const continueDrawingLine = (
+  event: ReactPointerEvent<HTMLDivElement>
+) => {
+  if (
+    !isDrawingLine ||
+    !flowInstance ||
+    !lineDrawStartRef.current ||
+    !draftLineIdRef.current
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const currentPoint =
+    flowInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+  const startPoint = lineDrawStartRef.current;
+  const lineId = draftLineIdRef.current;
+
+  const horizontalDistance = Math.abs(
+    currentPoint.x - startPoint.x
+  );
+
+  const verticalDistance = Math.abs(
+    currentPoint.y - startPoint.y
+  );
+
+  const isHorizontal =
+    horizontalDistance >= verticalDistance;
+
+  const nextPosition = isHorizontal
+    ? {
+        x: Math.min(
+          startPoint.x,
+          currentPoint.x
+        ),
+        y: startPoint.y - 10,
+      }
+    : {
+        x: startPoint.x - 10,
+        y: Math.min(
+          startPoint.y,
+          currentPoint.y
+        ),
+      };
+
+  const nextWidth = isHorizontal
+    ? Math.max(horizontalDistance, 20)
+    : 20;
+
+  const nextHeight = isHorizontal
+    ? 20
+    : Math.max(verticalDistance, 20);
+
+  const nextRotation = isHorizontal ? 0 : 90;
+
+  setNodes((currentNodes) =>
+    currentNodes.map((node) => {
+      if (node.id !== lineId) {
+        return node;
+      }
+
+      return {
+        ...node,
+        position: nextPosition,
+        style: {
+          ...node.style,
+          width: nextWidth,
+          height: nextHeight,
+        },
+        data: {
+          ...node.data,
+          rotation: nextRotation,
+        },
+      } as KNode;
+    })
+  );
+
+  setSelectedNode(
+    (currentSelectedNode) => {
+      if (
+        !currentSelectedNode ||
+        currentSelectedNode.id !== lineId
+      ) {
+        return currentSelectedNode;
+      }
+
+      return {
+        ...currentSelectedNode,
+        position: nextPosition,
+        style: {
+          ...currentSelectedNode.style,
+          width: nextWidth,
+          height: nextHeight,
+        },
+        data: {
+          ...currentSelectedNode.data,
+          rotation: nextRotation,
+        },
+      } as KNode;
+    }
+  );
+};
+
+const finishDrawingLine = (
+  event: ReactPointerEvent<HTMLDivElement>
+) => {
+  if (
+    !isDrawingLine ||
+    !draftLineIdRef.current
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (
+    event.currentTarget.hasPointerCapture(
+      event.pointerId
+    )
+  ) {
+    event.currentTarget.releasePointerCapture(
+      event.pointerId
+    );
+  }
+
+  lineDrawStartRef.current = null;
+  draftLineIdRef.current = null;
+  setIsDrawingLine(false);
+
+  setContextStatus(
+    "Line created. Select the line and drag a resize handle to change its length."
+  );
+};
+
+
   const fitAll = () => {
     if (!flowInstance) {
       return;
@@ -792,64 +1032,161 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
     setSelectedNode(null);
   };
 
-  const duplicateSelectedNode = () => {
-    if (!selectedNode) return;
+const duplicateSelectedNode = () => {
+  const selectedVisualNodes = nodes.filter(
+    (node) =>
+      node.selected &&
+      !(
+        node.data.nodeKind === "card" &&
+        node.data.source === "monday"
+      )
+  );
 
-    if (
-      selectedNode.data.nodeKind === "card" &&
-      selectedNode.data.source === "monday"
-    ) {
+  if (selectedVisualNodes.length === 0) {
+    return;
+  }
+
+  const duplicatedNodes =
+    duplicateNodes(selectedVisualNodes);
+
+  if (duplicatedNodes.length > 0) {
+    setSelectedNode(duplicatedNodes[0]);
+    setSelectedEdgeId(null);
+  }
+};
+
+
+const duplicateNodes = (nodesToCopy: KNode[]) => {
+  const timestamp = Date.now();
+
+  const duplicatedNodes = nodesToCopy.map(
+    (node, index) => {
+      const duplicatedNode: KNode = {
+        ...node,
+
+        id: `${node.id}-copy-${timestamp}-${index}`,
+
+        position: {
+          x: node.position.x + 40,
+          y: node.position.y + 40,
+        },
+
+        selected: false,
+      };
+
+      if (
+        duplicatedNode.data.nodeKind === "card"
+      ) {
+        duplicatedNode.data = {
+          ...duplicatedNode.data,
+          title: `${duplicatedNode.data.title} Copy`,
+        };
+      }
+
+      if (
+        duplicatedNode.data.nodeKind === "note"
+      ) {
+        duplicatedNode.data = {
+          ...duplicatedNode.data,
+          title: `${duplicatedNode.data.title} Copy`,
+        };
+      }
+
+      if (
+        duplicatedNode.data.nodeKind === "frame"
+      ) {
+        duplicatedNode.data = {
+          ...duplicatedNode.data,
+          title: `${duplicatedNode.data.title} Copy`,
+        };
+      }
+
+      if (
+        duplicatedNode.data.nodeKind === "shape"
+      ) {
+        duplicatedNode.data = {
+          ...duplicatedNode.data,
+          label: `${duplicatedNode.data.label} Copy`,
+        };
+      }
+
+      return duplicatedNode;
+    }
+  );
+
+  setNodes((currentNodes) => [
+    ...currentNodes,
+    ...duplicatedNodes,
+  ]);
+
+  return duplicatedNodes;
+};
+
+const copySelectedNodes = () => {
+  const selectedVisualNodes = nodes.filter(
+    (node) =>
+      node.selected &&
+      !(
+        node.data.nodeKind === "card" &&
+        node.data.source === "monday"
+      )
+  );
+
+  setCopiedNodes(selectedVisualNodes);
+};
+
+const pasteCopiedNodes = () => {
+  if (copiedNodes.length === 0) {
+    return;
+  }
+
+  const duplicatedNodes =
+    duplicateNodes(copiedNodes);
+
+  if (duplicatedNodes.length > 0) {
+    setSelectedNode(duplicatedNodes[0]);
+    setSelectedEdgeId(null);
+  }
+};
+
+useEffect(() => {
+  const handleKeyDown = (
+    event: KeyboardEvent
+  ) => {
+    const ctrlOrCmd =
+      event.ctrlKey || event.metaKey;
+
+    if (!ctrlOrCmd) {
       return;
     }
 
-    const duplicatedNode: KNode = {
-      ...selectedNode,
+    const key = event.key.toLowerCase();
 
-      id: `${selectedNode.id}-copy-${Date.now()}`,
+if (key === "c") {
+  event.preventDefault();
 
-      position: {
-        x: selectedNode.position.x + 40,
-        y: selectedNode.position.y + 40,
-      },
+  copySelectedNodes();
+}
 
-      data: {
-        ...selectedNode.data,
+if (key === "v") {
+  event.preventDefault();
 
-        ...(selectedNode.data.nodeKind === "card"
-          ? {
-              title: `${selectedNode.data.title} Copy`,
-            }
-          : {}),
-
-        ...(selectedNode.data.nodeKind === "note"
-          ? {
-              title: `${selectedNode.data.title} Copy`,
-            }
-          : {}),
-
-        ...(selectedNode.data.nodeKind === "frame"
-          ? {
-              title: `${selectedNode.data.title} Copy`,
-            }
-          : {}),
-
-        ...(selectedNode.data.nodeKind === "shape"
-          ? {
-              label: `${selectedNode.data.label} Copy`,
-            }
-          : {}),
-      },
-    };
-
-    setNodes((currentNodes) => [
-      ...currentNodes,
-      duplicatedNode,
-    ]);
-
-    setSelectedNode(duplicatedNode);
-    setSelectedEdgeId(null);
+  pasteCopiedNodes();
+}
   };
-  
+
+  window.addEventListener(
+    "keydown",
+    handleKeyDown
+  );
+
+  return () => {
+    window.removeEventListener(
+      "keydown",
+      handleKeyDown
+    );
+  };
+}, [nodes]);
 
   const openSelectedMondayItem = async () => {
     if (
@@ -1198,20 +1535,39 @@ const [boardColumns, setBoardColumns] = useState<MondayBoardColumn[]>([]);
       />
 
       <div className="kanvas-body">
-        <div className="kanvas-flow-wrapper">
+        <div
+          className={
+            isDrawingLine
+              ? "kanvas-flow-wrapper drawing-line"
+              : "kanvas-flow-wrapper"
+          }
+          onPointerDown={startDrawingLine}
+          onPointerMove={continueDrawingLine}
+          onPointerUp={finishDrawingLine}
+          onPointerCancel={finishDrawingLine}
+        >
           <ReactFlow<KNode, Edge>
             nodes={filteredNodes}
             edges={filteredEdges}
             nodeTypes={nodeTypes}
-            onInit={(instance) => setFlowInstance(instance)}
+            onInit={(instance) =>
+              setFlowInstance(instance)
+            }
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}
-            onPaneClick={closeDetailsPanel}
+            onPaneClick={
+              isDrawingLine
+                ? undefined
+                : closeDetailsPanel
+            }
             fitView
             deleteKeyCode={["Backspace", "Delete"]}
+            selectionOnDrag={!isDrawingLine}
+            multiSelectionKeyCode="Control"
+            panOnDrag={!isDrawingLine}
           >
             <Background gap={24} size={1} />
             <Controls />
